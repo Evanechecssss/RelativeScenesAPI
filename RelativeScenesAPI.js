@@ -6,7 +6,7 @@
  * Thanks: 
  * - McHorse for his mods
  * - Creman for help with trigonometry
- * - O for everything
+ * - Oshi for everything
  */
 
 var Math = Java.type("java.lang.Math");
@@ -87,6 +87,7 @@ function DuplicateScene(scene_name, save_name, world)
     scene.copy(origin);
     scene.setId(save_name);
     scene.setupIds();
+    //renamePrefix(save_name) <--use on old bb versions
     scene.renamePrefix(origin.getId(), scene.getId(), function(id){return save_name});
     for(var i = 0; i<scene.replays.size(); i++)
     {
