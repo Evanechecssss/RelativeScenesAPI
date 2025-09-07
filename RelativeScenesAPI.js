@@ -248,6 +248,15 @@ function normalizeAngle(angle) {
     return angle;
 }
 
+function setRootPoint(root, point)
+{
+    if (root == null)
+    {
+        root = new Vector3f(point.x, point.y, point.z);
+    }
+    return root;
+}
+
 function runThread(runnable)
 {(new (Java.extend(java.lang.Thread, {run: runnable}))()).start();}
 
