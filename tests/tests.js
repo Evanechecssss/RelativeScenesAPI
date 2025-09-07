@@ -14,6 +14,7 @@
 var Integer = Java.type("java.lang.Integer");
 var Math = Java.type("java.lang.Math");
 var Vector3f = Java.type("javax.vecmath.Vector3f");
+var Vector2f = Java.type("javax.vecmath.Vector2f");
 var CommandRecord = Java.type("mchorse.blockbuster.commands.CommandRecord");
 var RecordUtils = Java.type("mchorse.blockbuster.recording.RecordUtils");
 var BBCommonProxy = Java.type("mchorse.blockbuster.CommonProxy");
@@ -22,6 +23,23 @@ var Scene = Java.type("mchorse.blockbuster.recording.scene.Scene");
 var Replay = Java.type("mchorse.blockbuster.recording.scene.Replay");
 var AffineTransform = Java.type("java.awt.geom.AffineTransform");
 var Point2D = Java.type("java.awt.geom.Point2D$Double");
+
+function main(c) {
+    var subject = c.getSubject();
+    var world = subject.getWorld().getMinecraftWorld();
+
+    var scene_name = "t"
+    var scene_name2 = "t2"
+
+    runThread(function () {
+        DuplicateScene(scene_name, scene_name2, world);
+        ChangeScene(c,scene_name2, scene_name2, world, AtanizeScene, {side:1})
+        //RotateScene(scene_name2,scene_name2,world,90)
+        PlayScene(scene_name2, world, 0)
+        java.lang.Thread.sleep(100)
+        DeleteScene(scene_name2, world)
+    })
+}
 
 /**
  * @param {java.lang.String} name
@@ -46,7 +64,7 @@ function DuplicateScene(scene_name, save_name, world) {
     scene.setupIds();
     //renamePrefix(save_name) <--use on old bb versions
     scene.renamePrefix(origin.getId(), scene.getId(), function (id) {
-        return save_name;
+        return save_name
     });
 
     for (var i = 0; i < scene.replays.size(); i++) {
@@ -223,7 +241,71 @@ function TranslateScene(originName, saveName, world, dx, dz) {
     affine.translate(dx, dz);
     AffineScene(originName, saveName, world, affine, 0);
 }
+/**
+ *
+ * @param {java.lang.String} originName
+ * @param {java.lang.String} saveName
+ * @param {net.minecraft.world.World} world
+ * @param {java.lang.Integer} targetAngle
+ */
+function AtanizeScene(originName, saveName, world, targetAngle) {
+    var scene = BBCommonProxy.scenes.get(originName, world);
 
+    var dominantAngle = findDominantSceneAngle(scene);
+
+    var alignAngle = -dominantAngle;
+
+    RotateScene(originName, saveName, world, alignAngle + targetAngle);
+}
+
+function findDominantSceneAngle(scene) {
+    var vectors = new java.util.ArrayList();
+
+    var actorsList = new java.util.ArrayList(scene.actors.entrySet());
+    for (var i = 0; i < actorsList.size(); i++) {
+        var entry = actorsList.get(i);
+        var record = entry.getValue().record;
+
+        if (record.frames.size() > 1) {
+            var firstFrame = record.frames.get(0);
+            var lastFrame = record.frames.get(record.frames.size() - 1);
+
+            var dx = lastFrame.x - firstFrame.x;
+            var dz = lastFrame.z - firstFrame.z;
+
+            if (Math.sqrt(dx * dx + dz * dz) > 0.1) {
+                var angle = Math.atan2(dx, dz) * 180 / Math.PI;
+                vectors.add(angle);
+            }
+        }
+
+        if (record.frames.size() > 0) {
+            var firstFrame = record.frames.get(0);
+            vectors.add(firstFrame.yaw);
+        }
+    }
+
+    if (vectors.isEmpty()) return 0;
+
+    return calculateCircularAverage(vectors);
+}
+
+function calculateCircularAverage(angles) {
+    var sumSin = 0;
+    var sumCos = 0;
+
+    for (var i = 0; i < angles.size(); i++) {
+        var angle = angles.get(i);
+        var rad = angle * Math.PI / 180;
+        sumSin += Math.sin(rad);
+        sumCos += Math.cos(rad);
+    }
+
+    var avgSin = sumSin / angles.size();
+    var avgCos = sumCos / angles.size();
+
+    return Math.atan2(avgSin, avgCos) * 180 / Math.PI;
+}
 //@Utils
 
 function clearActors(scene) {
@@ -248,8 +330,18 @@ function normalizeAngle(angle) {
     return angle;
 }
 
+function setRootPoint(root, point)
+{
+    if (root == null)
+    {
+        root = new Vector3f(point.x, point.y, point.z);
+    }
+    return root;
+}
+
 function runThread(runnable)
 {(new (Java.extend(java.lang.Thread, {run: runnable}))()).start();}
+
 
 //@Deprecated
 
@@ -265,7 +357,7 @@ function runThread(runnable)
  * @param {java.lang.Function} fun
  * @param {java.lang.Object} params
  */
-function ChangeScene(scene_name, save_name, world, fun, params) {
+function ChangeScene(c,scene_name, save_name, world, fun, params) {
     var origin_record;
 
     function aply(name, origin) {
@@ -283,7 +375,7 @@ function ChangeScene(scene_name, save_name, world, fun, params) {
                 var record_name = record.filename;
                 var origin_frames = origin.frames;
                 var origin_actions = origin.actions;
-                var result = fun(origin_frames, origin_actions, params);
+                var result = fun(c,origin_frames, origin_actions, params);
                 origin.frames = result[0];
                 origin.actions = result[1];
                 origin.filename = record_name;
@@ -344,5 +436,96 @@ function MoveScene(frames, actions, params) {
             action.changeOrigin(yaw, root.x, root.y, root.z, root.x, root.y, root.z);
         });
     });
+    return [frames, actions];
+}
+
+function AtanizeScene2(c, frames, actions, params) {
+    var root = null;
+    var i = 0;
+    var theta_degrees = null;
+    var theta = null;
+
+    if (params.calculatedAngle === undefined) {
+        var firstFrame = frames.get(0);
+        root = new Vector3f(firstFrame.x, firstFrame.y, firstFrame.z);
+
+        var maxDistance = -1;
+        var targetPoint = null;
+
+        for (var j = 0; j < frames.size(); j++) {
+            var frame = frames.get(j);
+            var point = new Vector3f(frame.x, frame.y, frame.z);
+            var distance = point.distance(root);
+
+            if (distance > maxDistance && !root.equals(point)) {
+                maxDistance = distance;
+                targetPoint = point;
+            }
+        }
+
+        if (targetPoint !== null) {
+            var delta = new Vector3f(targetPoint.x - root.x, targetPoint.y - root.y, targetPoint.z - root.z);
+            var n_delta = new Vector2f(Math.abs(delta.x), delta.z);
+            var axle = new Vector2f(0, 1);
+            n_delta.normalize();
+
+            if (delta.x < 0) {
+                params.side = -1;
+            } else {
+                params.side = 1;
+            }
+
+            theta = n_delta.angle(axle);
+            theta_degrees = theta * 180 / Math.PI;
+            params.calculatedAngle = theta_degrees;
+            params.calculatedSide = params.side;
+        }
+    } else {
+        theta_degrees = params.calculatedAngle;
+        params.side = params.calculatedSide;
+        theta = theta_degrees * Math.PI / 180;
+    }
+
+    for (var j = 0; j < frames.size(); j++) {
+        var frame = frames.get(j);
+        var point = new Vector3f(frame.x, frame.y, frame.z);
+
+        if (i == 0 && root === null) {
+            root = new Vector3f(point.x, point.y, point.z);
+        }
+
+        var delta = new Vector3f(point.x - root.x, point.y - root.y, point.z - root.z);
+
+        var cos = Math.cos(theta);
+        var sin = Math.sin(theta);
+        var xx = delta.x * cos + (params.side * -1) * (delta.z * sin);
+        var zz = (params.side) * delta.x * sin + delta.z * cos;
+
+        delta.x = xx;
+        delta.z = zz;
+
+        frame.yaw += theta_degrees;
+        frame.yawHead += theta_degrees;
+
+        if (frame.hasBodyYaw) {
+            frame.bodyYaw += theta_degrees;
+        }
+
+        frame.x = root.x + delta.x;
+        frame.y = root.y + delta.y;
+        frame.z = root.z + delta.z;
+        i++;
+    }
+
+    for (var j = 0; j < actions.size(); j++) {
+        var a_actions = actions.get(j);
+        if (a_actions != null && !a_actions.isEmpty()) {
+            for (var k = 0; k < a_actions.size(); k++) {
+                var action = a_actions.get(k);
+                action.changeOrigin(theta_degrees, root.x, root.y, root.z, root.x, root.y, root.z);
+            }
+        }
+    }
+
     return [frames, actions];
 }
